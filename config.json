@@ -1,0 +1,47 @@
+{
+  "chance": 0.4,
+  "cooldown": 8,
+  "volume": 0.6,
+  "min_playtime": 2,
+  "max_playtime": 4,
+  "min_speed": 0.7,
+  "max_speed": 1.5,
+  "texture_scale": 0.1,
+  "texture_x": 0.5,
+  "texture_y": 0.8,
+  "mouse_triggers_enable": true,
+  "mouse_triggers": {
+    "left": {
+      "enable": true,
+      "press": false,
+      "release": true,
+      "area": "all",
+      "wait": 0.5,
+      "chance": 0.1
+    },
+    "right":{
+      "enable": true,
+      "press": false,
+      "release": true,
+      "area": "all",
+      "wait": 0.5,
+      "chance": 0.1
+    }
+  },
+  "windows_switch_triggers_enable": true,
+  "windows_switch_triggers": {
+    "enable": false,
+    "blacklist": [
+      "XamlExplorerHostIslandWindow"
+    ],
+    "whitelist": [
+
+    ],
+    "windows_detect_interval": 0.2,
+    "wait": 0,
+    "chance": "default"
+  },
+  "background_trigger_rate": 0,
+  "dont_do_that": false,
+  "is_debug": true
+}

@@ -1,6 +1,8 @@
 import time
+
 start_time_dict = {}
 used_time_dict = {}
+
 
 def print_use_time(time_name, log_prefix=None):
     use_time = time.time() - start_time_dict.get(time_name, 0)
@@ -9,8 +11,10 @@ def print_use_time(time_name, log_prefix=None):
     print(f"[{log_prefix}] {time_name} Time Used: {use_time}")
     used_time_dict[time_name] = use_time
 
+
 def record_start_time(time_name):
     start_time_dict[time_name] = time.time()
+
 
 record_start_time("import")
 
@@ -30,8 +34,6 @@ import soundfile as sf
 import sounddevice as sd
 import numpy as np
 
-
-
 # const attr
 SW_PREFIX = "[Main]"
 MOUSE_PREFIX = "[Mouse]"
@@ -39,7 +41,8 @@ SCREEN_PREFIX = "[Screen]"
 SOUND_PREFIX = "[Sound]"
 TEXTURE_PREFIX = "[Texture]"
 
-windows_blocklist = {'XamlExplorerHostIslandWindow'}
+
+
 
 # ---------------- tool ----------------
 def load_json(path):
@@ -50,19 +53,26 @@ def load_json(path):
         print(e)
         return {}
 
+
 def get_abs_path(path: str):
     return path
     # return os.path.join(BASE_DIR, path)
 
 
 def random_chance(chance):
-    return random.random() < chance
+    v = random.random()
+    print_xd(f"[Random] random {v} | {chance}")
+    return v < chance
+
 
 def nothing(*args, **kwargs):
     pass
 
+
 class Config:
     def __init__(self):
+        self.mouse_triggers_enable = True
+        self.windows_switch_triggers_enable = True
         self.texture_scale = 1
         self.max_playtime = 2
         self.min_playtime = 4
@@ -73,6 +83,8 @@ class Config:
         self.min_speed = 0.7
         self.max_speed = 1.5
         self.mouse_triggers = {}
+        self.background_trigger_rate = 0.01
+        self.windows_switch_triggers = {}
         self.load_config()
 
     # override this if config path change
@@ -104,11 +116,26 @@ class Config:
             max_playtime = self.max_playtime
             if min_playtime > max_playtime:
                 self.min_playtime, self.max_playtime = max_playtime, min_playtime
+
         except Exception as e:
             print(f"config error {e}")
             pass
 
+
 config: Config = Config()
+windows_switch_triggers = config.windows_switch_triggers
+windows_blocklist = set(windows_switch_triggers.get("blacklist", {}))
+windows_whitelist = set(windows_switch_triggers.get("whitelist", {}))
+windows_wait_time = windows_switch_triggers.get("wait", 0)
+if windows_wait_time < 0:
+    windows_wait_time = 0
+windows_detect_interval = windows_switch_triggers.get("windows_detect_interval", 0.2)
+if windows_detect_interval <= 0:
+    windows_detect_interval = 0.2
+
+windows_chance = windows_switch_triggers.get("chance", "default")
+if windows_chance == "default":
+    windows_chance = config.chance
 
 print_use_time("import", "Init")
 #  pip install pynput pillow pywin32 mss
@@ -124,15 +151,13 @@ else:
     # 本地运行
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-
-
 if config.is_debug:
     print_xd = print
 else:
     print_xd = nothing
 
-# print_xd("test")
 
+# print_xd("test")
 
 
 def get_focused_monitor_rect():
@@ -154,6 +179,8 @@ def get_focused_monitor_rect():
 
 
 cooldown_dict = {}
+
+
 def get_cooldown_status(key, cooldown):
     if key in cooldown_dict:
         if time.time() - cooldown_dict[key] < cooldown:
@@ -163,8 +190,10 @@ def get_cooldown_status(key, cooldown):
     else:
         return True
 
+
 def start_cooldown(key):
     cooldown_dict[key] = time.time()
+
 
 # cooldown attr
 SW_COOLDOWN = "SW_CD"
@@ -214,7 +243,6 @@ class Playsound:
             ], axis=1)
         return data_stretched
 
-
     def change_speed(self, speed=None):
         if not speed:
             self.last_speed = round(random.uniform(config.min_speed, config.max_speed), 1)
@@ -223,6 +251,7 @@ class Playsound:
 
     def ensure_duration(self):
         pass
+
     # todo ensure_duration
 
     def random_sound_and_get_duration(self, is_change_speed=True, ensure_duration=False):
@@ -240,6 +269,7 @@ class Playsound:
         return play_duration
 
     def get_random_sound(self):
+        # return r'resources\sounds\phonk7.ogg'
         sound_list = self.sound_list
         if not sound_list:
             print("没有找到音频文件！")
@@ -258,9 +288,9 @@ class Playsound:
         start_time = time.time()
         sd.play(data, samplerate)
         sd.wait()
-        print_xd(f"真实时间 {time.time()-start_time}")
+        print_xd(f"{SOUND_PREFIX} Real time {time.time() - start_time}")
 
-    def play_random_sound(self, duration=4.0, volume=1.0, speed: float=None):
+    def play_random_sound(self, duration=4.0, volume=1.0, speed: float = None):
         file = self.last_played
         if not file:
             file = self.get_random_sound()
@@ -271,12 +301,14 @@ class Playsound:
         self.last_played = file
         basename = os.path.basename(file)
 
+        # 音量平衡
         volumes = self.volumes
         if basename in volumes:
             file_volume = volumes[basename]
             if isinstance(file_volume, (int, float)):
                 volume *= file_volume
 
+        # 音量设置
         config_volume = config.volume
         if config_volume > 1:
             config_volume = 1
@@ -287,14 +319,14 @@ class Playsound:
 
         file_duration = self.get_audio_duration(file)
         speed = self.last_speed if speed is None else speed
-        play_duration = file_duration / speed
+        play_duration = round(file_duration / speed, 1)
         play_duration = min(duration, play_duration)
-        print_xd(f"正在播放: {file}, "
-              f"要求时长: {duration}s, 实际播放: {play_duration}s, 速度: {speed}x, 音量: {volume}")
+        print_xd(
+            f"{SOUND_PREFIX} Playing: {file}, Requested duration: {duration}s, Played duration: {play_duration}s, Speed: {speed}x, Volume: {volume}")
         # 读文件
         data, samplerate = sf.read(file)
         # 裁剪
-        end_sample = int(play_duration*speed * samplerate)
+        end_sample = int(play_duration * speed * samplerate)
         data = data[:end_sample]
         # 变速（变音高）
         if speed != 1.0:
@@ -302,7 +334,8 @@ class Playsound:
             # 更新播放时长：变速会影响实际播放秒数
 
         # 调整音量
-        data = data * volume
+        if volume != 1.0:
+            data = data * volume
         # 预防数值溢出
         max_val = np.max(np.abs(data))
         if max_val > 1.0:
@@ -311,6 +344,8 @@ class Playsound:
         t = threading.Thread(target=self.play_audio_thread, args=(data, samplerate))
         t.start()
         # 返回实际播放时间（秒），可以做其他事
+
+
 # def change_speed(data, speed):
 #     '''
 #     改变音频速度（和音高） using numpy.resample
@@ -327,17 +362,19 @@ button_name_dict = {
     "Button.x2": "x2",
 }
 
+
 class MouseTrigger:
     def __init__(self, **kwargs):
-        self.enable=True
-        self.press=False
-        self.release=True
+        self.enable = True
+        self.press = False
+        self.release = True
         self.area: str | list = "all"
         self.screen: str | int = "all"
         self.wait = 0
-        self.chance=None
+        self.chance = "default"
         for key, value in kwargs.items():
             setattr(self, key, value)
+
 
     def match(self, x, y, pressed):
         if not self.enable:
@@ -350,7 +387,7 @@ class MouseTrigger:
                 return False
 
         area = self.area
-        if isinstance(area, list) and len(area)>=2 and not self.is_point_in_rect(x, y, area[0], area[1]):
+        if isinstance(area, list) and len(area) >= 2 and not self.is_point_in_rect(x, y, area[0], area[1]):
             return False
 
         # chance = self.chance if isinstance(self.chance, (int, float))
@@ -371,11 +408,18 @@ class MouseTrigger:
 
         return min_x <= x <= max_x and min_y <= y <= max_y
 
+    def process_config(self):
+        try:
+            if self.chance == "default":
+                self.chance = config.chance
+        except Exception as e:
+            print(f"config error {e}")
+            pass
+
 mouse_trigger_dict = {
     button_name_dict.get(btn, btn): MouseTrigger(**setting)
     for btn, setting in config.mouse_triggers.items()
 }
-
 
 
 class SigmaWork:
@@ -390,7 +434,6 @@ class SigmaWork:
         import queue as pyqueue
         self.tk_queue = pyqueue.Queue()
         self.sigma_work_init()
-
 
     def sigma_work_init(self):
         tk_ready = threading.Event()
@@ -445,10 +488,8 @@ class SigmaWork:
     # --------- main logic  ---------
     # --------- 获取当前窗口所在显示器区域 ---------
     def show_bw_screen_for_monitor(self, monitor_rect, duration=2.0):
-        self.activation_count += 1
-        print_xd(f"{SW_PREFIX} Active Times: {self.activation_count}")
-
         img = self.grab_monitor_image(monitor_rect).convert('L').convert('RGB')
+
         # def do_show(l=monitor_rect[0], t=monitor_rect[1], r=monitor_rect[2], b=monitor_rect[3], img=img, duration=duration):
         def do_show():
             l = monitor_rect[0]
@@ -512,7 +553,7 @@ class SigmaWork:
             # print("destroy")
             # return
             self.ps.play_random_sound(duration, config.volume)
-            win.after(int(duration*1000), win.destroy)
+            win.after(int(duration * 1000), win.destroy)
             # time.sleep(duration)
             # print("destroy")
 
@@ -557,22 +598,23 @@ class SigmaWork:
         result.paste(tex, (paste_x, paste_y), tex)
         return result
 
-    def entry_sigma(self, wait: float=0):
+    def entry_sigma(self, wait: float = 0):
         if not get_cooldown_status(SW_COOLDOWN, config.cooldown):
             print_xd(f"{SW_PREFIX} On Cooldown")
             return
 
         start_cooldown(SW_COOLDOWN)
-        trigger_sigma_thread = threading.Thread(target=self.trigger_sigma, args=(wait, ), daemon=True)
+        trigger_sigma_thread = threading.Thread(target=self.trigger_sigma, args=(wait,), daemon=True)
         trigger_sigma_thread.start()
         # self.trigger_sigma(wait)
 
-
-    def trigger_sigma(self, wait: float=0):
+    def trigger_sigma(self, wait: float = 0):
         if wait != 0:
             time.sleep(wait)
         monitor_rect = get_focused_monitor_rect()
         if monitor_rect:
+            self.activation_count += 1
+            print_xd(f"{SW_PREFIX} Active Times: {self.activation_count}")
             self.ps.change_speed()
             self.show_bw_screen_for_monitor(monitor_rect, self.ps.random_sound_and_get_duration())
         else:
@@ -598,12 +640,11 @@ class SigmaWork:
                 print_xd(f"{MOUSE_PREFIX} mouse trigger {btn} is configured to be intercepted")
                 return
 
-            mouse_trigger_chance = mouse_trigger.chance
-            chance = config.chance if mouse_trigger_chance is None else mouse_trigger_chance
-            if not random_chance(chance):
+            if not random_chance(mouse_trigger.chance):
                 return
 
             self.entry_sigma(mouse_trigger.wait)
+
         with mouse.Listener(on_click=on_click) as listener:
             listener.join()
 
@@ -625,43 +666,54 @@ class SigmaWork:
                     #                       任务切换
                     if class_name in windows_blocklist:
                         print_xd(f"{SCREEN_PREFIX} Ignored special window: {class_name}")
+                    elif windows_whitelist and class_name not in windows_whitelist:
+                        print_xd(f"{SCREEN_PREFIX} Window not in whitelist: {class_name}")
                     else:
                         if random_chance(config.chance):
+                            if windows_wait_time != 0:
+                                time.sleep(windows_wait_time)
                             self.entry_sigma()
             except Exception as e:
                 print(f"{SCREEN_PREFIX} window_focus_listener Failed, hwnd={hwnd}, last_hwnd={last_hwnd}\n{SCREEN_PREFIX} {e}")
-            time.sleep(0.2)
+
+            time.sleep(windows_detect_interval)
 
     def start_sigma_work(self):
-        mouse_thread = threading.Thread(target=self.mouse_listener, daemon=True)
-        mouse_thread.start()
-        self.window_focus_listener()
-
-
-
-
-
-
-
-
+        threads = []
+        if config.mouse_triggers_enable:
+            mouse_thread = threading.Thread(target=self.mouse_listener, daemon=True)
+            mouse_thread.start()
+            threads.append(mouse_thread)
+        if config.windows_switch_triggers_enable:
+            window_thread = threading.Thread(target=self.window_focus_listener, daemon=True)
+            window_thread.start()
+            threads.append(window_thread)
+        background_trigger_rate = config.background_trigger_rate
+        if background_trigger_rate == 0:
+            print("[Background] background_trigger_rate = 0, background trigger is disabled")
+            for t in threads:
+                t.join()
+            return
+        while True:
+            time.sleep(1)
+            random_value = random.random()
+            if random_value < background_trigger_rate:
+                print_xd(f"[Background] background random triggered: {random_value} < {background_trigger_rate}")
+        # 堵塞
 
 
 if __name__ == '__main__':
-    # 鼠标线程
-
-
     try:
         record_start_time("SW_Init")
         sw = SigmaWork()
         print_use_time("SW_Init")
         time.sleep(2)
-        record_start_time("SW_Start")
+        # record_start_time("SW_Start")
         sw.start_sigma_work()
-        print_use_time("SW_Start")
-        print()
+        # print_use_time("SW_Start")
     except Exception as main_error:
-        pass
-    input("\nover")
+        print(main_error)
+
     # sw.trigger_sigma()
     # time.sleep(3)
     # ps = Playsound()
@@ -671,5 +723,3 @@ if __name__ == '__main__':
     # ps.play_random_sound(duration=5 ,speed=3)
 
     # time.sleep(4)
-
-
