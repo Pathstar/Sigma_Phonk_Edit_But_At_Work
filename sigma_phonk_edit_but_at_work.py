@@ -1,20 +1,45 @@
+import time
+start_time_dict = {}
+used_time_dict = {}
+
+def print_use_time(time_name, log_prefix=None):
+    use_time = time.time() - start_time_dict.get(time_name, 0)
+    if log_prefix is None:
+        log_prefix = time_name
+    print(f"[{log_prefix}] {time_name} Time Used: {use_time}")
+    used_time_dict[time_name] = use_time
+
+def record_start_time(time_name):
+    start_time_dict[time_name] = time.time()
+
+record_start_time("import")
+
+import os
 import json
 import random
+import sys
 import threading
-import time
 from pynput import mouse
-from PIL import ImageGrab, ImageTk
+from PIL import ImageTk
 import tkinter as tk
 import win32gui
 import win32api
 import mss
 from PIL import Image
-import os
 import soundfile as sf
 import sounddevice as sd
 import numpy as np
-#  pip install pynput pillow pywin32 mss
 
+
+
+# const attr
+SW_PREFIX = "[Main]"
+MOUSE_PREFIX = "[Mouse]"
+SCREEN_PREFIX = "[Screen]"
+SOUND_PREFIX = "[Sound]"
+TEXTURE_PREFIX = "[Texture]"
+
+windows_blocklist = {'XamlExplorerHostIslandWindow'}
 
 # ---------------- tool ----------------
 def load_json(path):
@@ -25,57 +50,40 @@ def load_json(path):
         print(e)
         return {}
 
-def get_focused_monitor_rect():
-    hwnd = win32gui.GetForegroundWindow()
-    try:
-        rect = win32gui.GetWindowRect(hwnd)  # (left, top, right, bottom)
-    except:
-        return None
-    cx = (rect[0] + rect[2]) // 2
-    cy = (rect[1] + rect[3]) // 2
-    # 获取所有显示器及区域
-    monitors = win32api.EnumDisplayMonitors()
-    for hMonitor, hDC, monitor_rect in monitors:
-        l, t, r, b = monitor_rect
-        if l <= cx < r and t <= cy < b:
-            return (l, t, r, b)
-    # 没找到就用主屏
-    return win32api.EnumDisplayMonitors()[0][2]
+def get_abs_path(path: str):
+    return path
+    # return os.path.join(BASE_DIR, path)
 
 
-cooldown_dict = {}
-def get_and_update_cooldown_status(key, cooldown):
-    if key in cooldown_dict:
-        if time.time() - cooldown_dict[key] < cooldown:
-            return False
-        else:
-            cooldown_dict[key] = time.time()
-            return True
-    else:
-        cooldown_dict[key] = time.time()
-        return True
+def random_chance(chance):
+    return random.random() < chance
+
+def nothing(*args, **kwargs):
+    pass
 
 class Config:
     def __init__(self):
-        self.max_playtime = None
-        self.min_playtime = None
+        self.texture_scale = 1
+        self.max_playtime = 2
+        self.min_playtime = 4
         self.volume = 1
         self.is_debug = False
-        self.random_chance: float = 0.5
+        self.chance: float = 0.3
         self.cooldown: float = 4
         self.min_speed = 0.7
         self.max_speed = 1.5
+        self.mouse_triggers = {}
         self.load_config()
 
     # override this if config path change
     def load_config(self):
-        self.set_config(**self.config_loader(path='config.json'))
+        self.set_config(**load_json(path=get_abs_path('config.json')))
         self.process_config()
 
-    @staticmethod
-    def config_loader(path='config.json'):
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+    # @staticmethod
+    # def config_loader(path='config.json'):
+    #     with open(path, 'r', encoding='utf-8') as f:
+    #         return json.load(f)
 
     def set_config(self, **kwargs):
         for key, value in kwargs.items():
@@ -100,27 +108,77 @@ class Config:
             print(f"config error {e}")
             pass
 
-
 config: Config = Config()
 
+print_use_time("import", "Init")
+#  pip install pynput pillow pywin32 mss
+# pyinstaller --onefile --add-data "config.json;." --add-data "resources;resources" sigma_phonk_edit_but_at_work.py
+
+is_exe = False
+if getattr(sys, 'frozen', False):
+    # 打包后，sys.frozen会被设置
+    BASE_DIR = os.path.dirname(sys.executable)
+    is_exe = True
+    is_debug = False
+else:
+    # 本地运行
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+
+if config.is_debug:
+    print_xd = print
+else:
+    print_xd = nothing
+
+# print_xd("test")
+
+
+
+def get_focused_monitor_rect():
+    hwnd = win32gui.GetForegroundWindow()
+    try:
+        rect = win32gui.GetWindowRect(hwnd)  # (left, top, right, bottom)
+    except:
+        return None
+    cx = (rect[0] + rect[2]) // 2
+    cy = (rect[1] + rect[3]) // 2
+    # 获取所有显示器及区域
+    monitors = win32api.EnumDisplayMonitors()
+    for hMonitor, hDC, monitor_rect in monitors:
+        l, t, r, b = monitor_rect
+        if l <= cx < r and t <= cy < b:
+            return (l, t, r, b)
+    # 没找到就用主屏
+    return win32api.EnumDisplayMonitors()[0][2]
+
+
+cooldown_dict = {}
+def get_cooldown_status(key, cooldown):
+    if key in cooldown_dict:
+        if time.time() - cooldown_dict[key] < cooldown:
+            return False
+        else:
+            return True
+    else:
+        return True
+
+def start_cooldown(key):
+    cooldown_dict[key] = time.time()
+
+# cooldown attr
+SW_COOLDOWN = "SW_CD"
 
 
 class Playsound:
-    def __init__(self, resources='resources'):
+    def __init__(self, resources=get_abs_path('resources')):
         # self.resources = 'resources'
         self.resources = resources
         self.path = os.path.join(resources, 'sounds')
         self.volumes = load_json(os.path.join(self.resources, 'sounds.json'))
         self.sound_list = self.get_audio_files(self.path)
-        ps = Playsound()
-        ps.change_speed()
-        ps.play_random_sound(duration=4.5)
         self.last_played = ""
         self.last_speed = 1.0
-
-
 
     @staticmethod
     def get_audio_files(folder):
@@ -132,7 +190,6 @@ class Playsound:
                 base, ext = os.path.splitext(file)
                 if ext.lower() in exts:
                     sound_files.append(os.path.join(root, file))
-        print(sound_files)
         return sound_files
 
     @staticmethod
@@ -166,12 +223,14 @@ class Playsound:
 
     def ensure_duration(self):
         pass
+    # todo ensure_duration
 
-    def get_random_sound_and_duration(self, is_change_speed=True, ensure_duration=False):
+    def random_sound_and_get_duration(self, is_change_speed=True, ensure_duration=False):
         if is_change_speed:
             self.change_speed()
 
         file = self.get_random_sound()
+        self.last_played = file
         file_duration = self.get_audio_duration(file)
         play_duration = file_duration / self.last_speed
         # 如果duration_secs大于音频实际长度，只能播放实际长度
@@ -199,7 +258,7 @@ class Playsound:
         start_time = time.time()
         sd.play(data, samplerate)
         sd.wait()
-        print(f"真实时间 {time.time()-start_time}")
+        print_xd(f"真实时间 {time.time()-start_time}")
 
     def play_random_sound(self, duration=4.0, volume=1.0, speed: float=None):
         file = self.last_played
@@ -230,7 +289,7 @@ class Playsound:
         speed = self.last_speed if speed is None else speed
         play_duration = file_duration / speed
         play_duration = min(duration, play_duration)
-        print(f"正在播放: {file}, "
+        print_xd(f"正在播放: {file}, "
               f"要求时长: {duration}s, 实际播放: {play_duration}s, 速度: {speed}x, 音量: {volume}")
         # 读文件
         data, samplerate = sf.read(file)
@@ -260,18 +319,78 @@ class Playsound:
 #     idx = idx[idx < len(data)]
 #     return data[idx.astype(int)]
 
+button_name_dict = {
+    "Button.left": "left",
+    "Button.right": "right",
+    "Button.middle": "middle",
+    "Button.x1": "x1",
+    "Button.x2": "x2",
+}
+
+class MouseTrigger:
+    def __init__(self, **kwargs):
+        self.enable=True
+        self.press=False
+        self.release=True
+        self.area: str | list = "all"
+        self.screen: str | int = "all"
+        self.wait = 0
+        self.chance=None
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def match(self, x, y, pressed):
+        if not self.enable:
+            return False
+        if pressed:
+            if not self.press:
+                return False
+        else:
+            if not self.release:
+                return False
+
+        area = self.area
+        if isinstance(area, list) and len(area)>=2 and not self.is_point_in_rect(x, y, area[0], area[1]):
+            return False
+
+        # chance = self.chance if isinstance(self.chance, (int, float))
+        # if isinstance(area, list)
+
+        return True
+
+    @staticmethod
+    def is_point_in_rect(x, y, point1, point2):
+        # x, y = point[0], point[1]
+        x1, y1 = point1[0], point1[1]
+        x2, y2 = point2[0], point2[1]
+
+        min_x = min(x1, x2)
+        max_x = max(x1, x2)
+        min_y = min(y1, y2)
+        max_y = max(y1, y2)
+
+        return min_x <= x <= max_x and min_y <= y <= max_y
+
+mouse_trigger_dict = {
+    button_name_dict.get(btn, btn): MouseTrigger(**setting)
+    for btn, setting in config.mouse_triggers.items()
+}
+
 
 
 class SigmaWork:
-    def __init__(self, resources="resources"):
-        self.index = 0
+    def __init__(self, resources=get_abs_path('resources')):
+        self.activation_count = 0
+        self.detection_count = 0
         self.resources = resources
         self.path = os.path.join(self.resources, "textures")
         self.texture_files = self.get_texture_files(self.path)
         self.scales = load_json(os.path.join(self.resources, "textures.json"))
+        self.ps = Playsound()
         import queue as pyqueue
         self.tk_queue = pyqueue.Queue()
         self.sigma_work_init()
+
 
     def sigma_work_init(self):
         tk_ready = threading.Event()
@@ -294,10 +413,6 @@ class SigmaWork:
         return random.choice(self.texture_files)
 
     # ----------- tool -------------
-    @staticmethod
-    def get_cooldown_status():
-        return get_and_update_cooldown_status("cooldown", config.cooldown)
-
     @staticmethod
     def scale_image(image, scale):
         # 获取原始尺寸
@@ -329,11 +444,9 @@ class SigmaWork:
 
     # --------- main logic  ---------
     # --------- 获取当前窗口所在显示器区域 ---------
-    def show_bw_screen_for_monitor(self, monitor_rect, duration=2):
-        self.index += 1
-        if config.is_debug:
-            print(f"time {self.index}")
-            print()
+    def show_bw_screen_for_monitor(self, monitor_rect, duration=2.0):
+        self.activation_count += 1
+        print_xd(f"{SW_PREFIX} Active Times: {self.activation_count}")
 
         img = self.grab_monitor_image(monitor_rect).convert('L').convert('RGB')
         # def do_show(l=monitor_rect[0], t=monitor_rect[1], r=monitor_rect[2], b=monitor_rect[3], img=img, duration=duration):
@@ -365,13 +478,14 @@ class SigmaWork:
                 texture_scale = screen_dim / k1_dim
 
                 # 自定义缩放
+                texture_scale *= config.texture_scale
                 basename = os.path.basename(texture_path)
                 if basename in self.scales:
                     scale = self.scales[basename]
                     if isinstance(scale, (int, float)):
                         texture_scale *= scale
 
-                print(f"texture_scale {texture_scale}")
+                print_xd(f"{TEXTURE_PREFIX} texture_scale {texture_scale}")
                 if texture_scale != 1.0:
                     texture = self.scale_image(texture, texture_scale)
 
@@ -379,6 +493,7 @@ class SigmaWork:
                 center_x = screen_width // 2
                 center_y = int(screen_height * 0.8)
                 # 贴上去
+                # composed = img
                 composed = self.overlay_image(img, texture, center_x, center_y, resize_to_bg=True)
             else:
                 composed = img
@@ -396,6 +511,7 @@ class SigmaWork:
             # win.destroy()
             # print("destroy")
             # return
+            self.ps.play_random_sound(duration, config.volume)
             win.after(int(duration*1000), win.destroy)
             # time.sleep(duration)
             # print("destroy")
@@ -422,7 +538,7 @@ class SigmaWork:
         resize_to_bg: 若贴图比背景还大，可自动缩小
         返回合成后的新Image
         """
-        bg_w, bg_h = bg_img.size
+        # bg_w, bg_h = bg_img.size
         tex = texture_img.convert('RGBA')
 
         # if resize_to_bg:
@@ -441,21 +557,53 @@ class SigmaWork:
         result.paste(tex, (paste_x, paste_y), tex)
         return result
 
-    def maybe_freeze(self):
-        if random.random() < config.random_chance and self.get_cooldown_status():
-            self.trigger_sigma()
+    def entry_sigma(self, wait: float=0):
+        if not get_cooldown_status(SW_COOLDOWN, config.cooldown):
+            print_xd(f"{SW_PREFIX} On Cooldown")
+            return
 
-    def trigger_sigma(self):
+        start_cooldown(SW_COOLDOWN)
+        trigger_sigma_thread = threading.Thread(target=self.trigger_sigma, args=(wait, ), daemon=True)
+        trigger_sigma_thread.start()
+        # self.trigger_sigma(wait)
+
+
+    def trigger_sigma(self, wait: float=0):
+        if wait != 0:
+            time.sleep(wait)
         monitor_rect = get_focused_monitor_rect()
         if monitor_rect:
-            self.show_bw_screen_for_monitor(monitor_rect)
+            self.ps.change_speed()
+            self.show_bw_screen_for_monitor(monitor_rect, self.ps.random_sound_and_get_duration())
+        else:
+            print(f"{SW_PREFIX} Error in getting monitor rect")
+
+    def detected_counter(self):
+        print_xd()
+        self.detection_count += 1
+        print_xd(f"{SW_PREFIX} {time.strftime('%H:%M:%S')} Detection Times: {self.detection_count}")
 
     def mouse_listener(self):
         def on_click(x, y, btn, pressed):
-            if config.is_debug:
-                print(f"x: {x}, y: {y}, btn: {btn}, pressed: {pressed}")
-            self.maybe_freeze()
-        #     todo config area, btn, press or release
+            # do not use sleep in this scope or mouse will be frozen
+            self.detected_counter()
+            print_xd(f"{MOUSE_PREFIX} x: {x}, y: {y}, btn: {btn}, pressed: {pressed}")
+
+            mouse_trigger: MouseTrigger = mouse_trigger_dict.get(button_name_dict.get(str(btn)))
+            if mouse_trigger is None:
+                print_xd(f"{MOUSE_PREFIX} mouse trigger {btn} event is not configured")
+                return
+
+            if not mouse_trigger.match(x, y, pressed):
+                print_xd(f"{MOUSE_PREFIX} mouse trigger {btn} is configured to be intercepted")
+                return
+
+            mouse_trigger_chance = mouse_trigger.chance
+            chance = config.chance if mouse_trigger_chance is None else mouse_trigger_chance
+            if not random_chance(chance):
+                return
+
+            self.entry_sigma(mouse_trigger.wait)
         with mouse.Listener(on_click=on_click) as listener:
             listener.join()
 
@@ -464,23 +612,25 @@ class SigmaWork:
         last_hwnd = win32gui.GetForegroundWindow()
         time.sleep(0.2)
         while True:
-            hwnd = win32gui.GetForegroundWindow()
-            if hwnd != last_hwnd:
-                class_name = win32gui.GetClassName(hwnd)
-                if config.is_debug:
-                    window_text = win32gui.GetWindowText(hwnd)
-                    print(f"Switched to hwnd={hwnd}, class={class_name}, title={window_text}")
-                #                       任务切换
-                if class_name not in ['XamlExplorerHostIslandWindow']:  # CabinetWClass示例，可根据需要调整
+            hwnd = None
+            try:
+                hwnd = win32gui.GetForegroundWindow()
+                if hwnd != last_hwnd and hwnd != 0:
+                    last_hwnd = hwnd
+                    self.detected_counter()
+                    class_name = win32gui.GetClassName(hwnd)
                     if config.is_debug:
-                        print("switch windows active")
-                    self.maybe_freeze()
-                else:
-                    if config.is_debug:
-                        print("Ignored special window: ", class_name)
-                last_hwnd = hwnd
+                        window_text = win32gui.GetWindowText(hwnd)
+                        print_xd(f"{SCREEN_PREFIX} Switched to hwnd={hwnd}, class={class_name}, title={window_text}")
+                    #                       任务切换
+                    if class_name in windows_blocklist:
+                        print_xd(f"{SCREEN_PREFIX} Ignored special window: {class_name}")
+                    else:
+                        if random_chance(config.chance):
+                            self.entry_sigma()
+            except Exception as e:
+                print(f"{SCREEN_PREFIX} window_focus_listener Failed, hwnd={hwnd}, last_hwnd={last_hwnd}\n{SCREEN_PREFIX} {e}")
             time.sleep(0.2)
-
 
     def start_sigma_work(self):
         mouse_thread = threading.Thread(target=self.mouse_listener, daemon=True)
@@ -498,12 +648,20 @@ class SigmaWork:
 
 if __name__ == '__main__':
     # 鼠标线程
-    time.sleep(2)
-    sw = SigmaWork()
-    print(config.cooldown)
 
-    sw.start_sigma_work()
 
+    try:
+        record_start_time("SW_Init")
+        sw = SigmaWork()
+        print_use_time("SW_Init")
+        time.sleep(2)
+        record_start_time("SW_Start")
+        sw.start_sigma_work()
+        print_use_time("SW_Start")
+        print()
+    except Exception as main_error:
+        pass
+    input("\nover")
     # sw.trigger_sigma()
     # time.sleep(3)
     # ps = Playsound()
