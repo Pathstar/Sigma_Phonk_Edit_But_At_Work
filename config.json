@@ -17,7 +17,7 @@
       "press": false,
       "release": true,
       "area": "all",
-      "wait": 3,
+      "wait": 0.5,
       "chance": 0.1
     },
     "right":{
@@ -46,4 +46,5 @@
   "background_trigger_rate": 0,
   "dont_do_that": false,
   "is_debug": false
+
 }
