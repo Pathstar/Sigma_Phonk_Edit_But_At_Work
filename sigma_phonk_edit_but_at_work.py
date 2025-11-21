@@ -1,14 +1,13 @@
 import time
-
 start_time_dict = {}
 used_time_dict = {}
 
-
+ori_print = print
 def print_use_time(time_name, log_prefix=None):
     use_time = time.time() - start_time_dict.get(time_name, 0)
     if log_prefix is None:
         log_prefix = time_name
-    print(f"[{log_prefix}] {time_name} Time Used: {use_time}")
+    ori_print(f"[{log_prefix}] {time_name} Time Used: {use_time}")
     used_time_dict[time_name] = use_time
 
 
@@ -24,15 +23,32 @@ import random
 import sys
 import threading
 from pynput import mouse
-from PIL import ImageTk
+from PIL import ImageTk, Image
 import tkinter as tk
 import win32gui
 import win32api
 import mss
-from PIL import Image
 import soundfile as sf
 import sounddevice as sd
 import numpy as np
+import queue as pyqueue
+tk_queue = pyqueue.Queue()
+
+class DummyText:
+    def insert(self, *args, **kwargs):
+        pass
+    def see(self, *args, **kwargs):
+        pass
+# 初始化
+tk_log_text_area = DummyText()
+is_quit = False
+#  pip install pillow pynput mss soundfile sounddevice numpy pywin32
+# pyinstaller --onefile --add-data "config.json;." --add-data "resources;resources" sigma_phonk_edit_but_at_work.py
+# pyinstaller --onefile --icon=HaHaBundle.ico sigma_phonk_edit_but_at_work.py
+# pyinstaller --onefile --windowed --icon=HaHaBundle.ico sigma_phonk_edit_but_at_work.py
+
+# or
+# pyinstaller -F -w --icon=HaHaBundle.ico sigma_phonk_edit_but_at_work.py
 
 # const attr
 SW_PREFIX = "[Main]"
@@ -45,6 +61,17 @@ TEXTURE_PREFIX = "[Texture]"
 
 
 # ---------------- tool ----------------
+def scale_image(image, scale):
+    # 获取原始尺寸
+    width, height = image.size
+    # 计算新尺寸
+    new_width = int(width * scale)
+    new_height = int(height * scale)
+    # 使用 LANCZOS 算法进行平滑缩放
+    scaled_image = image.resize((new_width, new_height), Image.LANCZOS)
+    return scaled_image
+
+
 def load_json(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -71,6 +98,7 @@ def nothing(*args, **kwargs):
 
 class Config:
     def __init__(self):
+        self.is_open_main_window = True
         self.mouse_triggers_enable = True
         self.windows_switch_triggers_enable = True
         self.texture_scale = 1
@@ -138,8 +166,6 @@ if windows_chance == "default":
     windows_chance = config.chance
 
 print_use_time("import", "Init")
-#  pip install pynput pillow pywin32 mss
-# pyinstaller --onefile --add-data "config.json;." --add-data "resources;resources" sigma_phonk_edit_but_at_work.py
 
 is_exe = False
 if getattr(sys, 'frozen', False):
@@ -151,10 +177,28 @@ else:
     # 本地运行
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-if config.is_debug:
-    print_xd = print
+
+
+def log_info(*args, **kwargs):
+    if is_quit:
+        ori_print("\nmain quit")
+        os._exit(0)
+    ori_print(*args, **kwargs)
+    msg = " ".join(map(str, args))
+    tk_log_text_area.insert(tk.END, msg + "\n")
+    tk_log_text_area.see(tk.END)
+    return log_info
+
+
+
+
+if config.is_debug and config.is_open_main_window:
+    print_xd = log_info
+    def print(*args, **kwargs):
+        log_info(*args, **kwargs)
+        return print
 else:
-    print_xd = nothing
+    print_xd = ori_print
 
 
 # print_xd("test")
@@ -431,13 +475,12 @@ class SigmaWork:
         self.texture_files = self.get_texture_files(self.path)
         self.scales = load_json(os.path.join(self.resources, "textures.json"))
         self.ps = Playsound()
-        import queue as pyqueue
-        self.tk_queue = pyqueue.Queue()
+
         self.sigma_work_init()
 
     def sigma_work_init(self):
         tk_ready = threading.Event()
-        tk_thread = threading.Thread(target=self.start_tk_thread, args=(tk_ready, self.tk_queue), daemon=True)
+        tk_thread = threading.Thread(target=self.start_tk_thread, args=(tk_ready, ), daemon=True)
         tk_thread.start()
         tk_ready.wait()
 
@@ -456,34 +499,60 @@ class SigmaWork:
         return random.choice(self.texture_files)
 
     # ----------- tool -------------
-    @staticmethod
-    def scale_image(image, scale):
-        # 获取原始尺寸
-        width, height = image.size
-        # 计算新尺寸
-        new_width = int(width * scale)
-        new_height = int(height * scale)
-        # 使用 LANCZOS 算法进行平滑缩放
-        scaled_image = image.resize((new_width, new_height), Image.LANCZOS)
-        return scaled_image
 
     # ----------- Tk管理和多屏展示 -------------
-    def start_tk_thread(self, background_ready_event, queue):
+    def start_tk_thread(self, background_ready_event):
         root = tk.Tk()
-        root.withdraw()
+        if config.is_open_main_window:
+            root.geometry("400x300")
+            root.title("Sigma Phonk Edit")
+            ico_path = "resources\\HaHaBundle.ico"
+            if os.path.exists(ico_path):
+                root.iconbitmap(ico_path)
 
+            root.configure(bg="white")
+            title = tk.Label(root, text="Sigma Phonk Edit", fg="black", bg="white", font=("微软雅黑", 24))
+            title.pack(pady=(10, 0))
+            subtitle = tk.Label(root, text="But At Work", fg="gray", bg="white", font=("微软雅黑", 14))
+            subtitle.pack(pady=(5, 10))
+            image_path = "resources\\textures\\gui\\caveira9.png"
+            if os.path.exists(image_path):
+                image = Image.open(image_path)
+                photo = ImageTk.PhotoImage(scale_image(image, 0.1))
+                # 放在 Label 里显示图片
+                label = tk.Label(root, image=photo, bg="white")
+                label.pack(padx=20, pady=20)
+
+            tk_log_text_area_width = 150 if config.is_debug else 50
+
+            global tk_log_text_area
+            tk_log_text_area = tk.Text(root, height=50, width=tk_log_text_area_width, bd=0, highlightthickness=0)
+            tk_log_text_area.pack()
+        else:
+            root.withdraw()
         def process_queue():
             try:
                 while True:
-                    func, args, kwargs = queue.get_nowait()
-                    func(*args, **kwargs)
+                    func, args, kwargs = tk_queue.get_nowait()
+                    try:
+                        func(*args, **kwargs)
+                    except Exception as e:
+                        print(e)
             except Exception:
                 pass
-            root.after(50, process_queue)
+            root.after(100, process_queue)
 
         background_ready_event.set()
         process_queue()
         root.mainloop()
+        global is_quit
+        is_quit = True
+        if config.is_debug:
+            print("\nquit")
+        else:
+            os._exit(0)
+        # sys.exit(0)
+        # exit(-1)
 
     # --------- main logic  ---------
     # --------- 获取当前窗口所在显示器区域 ---------
@@ -528,7 +597,7 @@ class SigmaWork:
 
                 print_xd(f"{TEXTURE_PREFIX} texture_scale {texture_scale}")
                 if texture_scale != 1.0:
-                    texture = self.scale_image(texture, texture_scale)
+                    texture = scale_image(texture, texture_scale)
 
                 # 计算贴图位置
                 center_x = screen_width // 2
@@ -557,7 +626,7 @@ class SigmaWork:
             # time.sleep(duration)
             # print("destroy")
 
-        self.tk_queue.put((do_show, (), {}))
+        tk_queue.put((do_show, (), {}))
 
     def grab_monitor_image(self, monitor_rect):
         l, t, r, b = monitor_rect
@@ -621,9 +690,8 @@ class SigmaWork:
             print(f"{SW_PREFIX} Error in getting monitor rect")
 
     def detected_counter(self):
-        print_xd()
         self.detection_count += 1
-        print_xd(f"{SW_PREFIX} {time.strftime('%H:%M:%S')} Detection Times: {self.detection_count}")
+        print_xd(f"\n{SW_PREFIX} {time.strftime('%H:%M:%S')} Detection Times: {self.detection_count}")
 
     def mouse_listener(self):
         def on_click(x, y, btn, pressed):
@@ -669,7 +737,7 @@ class SigmaWork:
                     elif windows_whitelist and class_name not in windows_whitelist:
                         print_xd(f"{SCREEN_PREFIX} Window not in whitelist: {class_name}")
                     else:
-                        if random_chance(config.chance):
+                        if random_chance(windows_chance):
                             if windows_wait_time != 0:
                                 time.sleep(windows_wait_time)
                             self.entry_sigma()
@@ -690,7 +758,7 @@ class SigmaWork:
             threads.append(window_thread)
         background_trigger_rate = config.background_trigger_rate
         if background_trigger_rate == 0:
-            print("[Background] background_trigger_rate = 0, background trigger is disabled")
+            print_xd("[Background] background_trigger_rate = 0, background trigger is disabled")
             for t in threads:
                 t.join()
             return
@@ -703,16 +771,18 @@ class SigmaWork:
 
 
 if __name__ == '__main__':
-    try:
-        record_start_time("SW_Init")
-        sw = SigmaWork()
-        print_use_time("SW_Init")
-        time.sleep(2)
-        # record_start_time("SW_Start")
-        sw.start_sigma_work()
-        # print_use_time("SW_Start")
-    except Exception as main_error:
-        print(main_error)
+    record_start_time("SW_Init")
+    sw = SigmaWork()
+    print_use_time("SW_Init")
+    time.sleep(2)
+    sw.start_sigma_work()
+    # try:
+    #
+    #     # record_start_time("SW_Start")
+    #
+    #     # print_use_time("SW_Start")
+    # except Exception as main_error:
+    #     print(main_error)
 
     # sw.trigger_sigma()
     # time.sleep(3)
