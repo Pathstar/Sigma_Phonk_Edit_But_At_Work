@@ -1,4 +1,5 @@
 {
+  "is_open_main_window": true,
   "chance": 0.4,
   "cooldown": 8,
   "volume": 0.6,
@@ -6,7 +7,7 @@
   "max_playtime": 4,
   "min_speed": 0.7,
   "max_speed": 1.5,
-  "texture_scale": 0.1,
+  "texture_scale": 1,
   "texture_x": 0.5,
   "texture_y": 0.8,
   "mouse_triggers_enable": true,
@@ -16,7 +17,7 @@
       "press": false,
       "release": true,
       "area": "all",
-      "wait": 0.5,
+      "wait": 3,
       "chance": 0.1
     },
     "right":{
@@ -32,7 +33,8 @@
   "windows_switch_triggers": {
     "enable": false,
     "blacklist": [
-      "XamlExplorerHostIslandWindow"
+      "XamlExplorerHostIslandWindow",
+      "MultitaskingViewFrame"
     ],
     "whitelist": [
 
@@ -43,5 +45,5 @@
   },
   "background_trigger_rate": 0,
   "dont_do_that": false,
-  "is_debug": true
+  "is_debug": false
 }
