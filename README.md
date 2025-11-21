@@ -22,5 +22,5 @@
 | press   | 是否按下触发 | `true / false`                | false   |
 | release | 是否释放触发 | `true / false`                | true    |
 | area    | 触发区域     | `"all" / [[0,0],[1920,1080]]` | all     |
-
 | chance  | 触发概率     | `"default" / 0-1`             | default |
+
